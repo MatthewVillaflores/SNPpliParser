@@ -1,0 +1,26 @@
+@model<spiking_psystems>
+
+def main(){
+  call init_snp(3);
+  call init_config(3);
+  call init_spiking_rules(3);
+}
+
+def init_snp(n){
+  @mu = in{i} : 1<=i<=n;
+  @mu += m{i} : 1<=i<=n;
+  @mu += o{i} : 1<=i<=n;
+
+  @marcs = (in{i}, m{j}) : 1<=i<=n, 1<=j<=n;
+  @marcs += (m{j}, o{i}) : i<=j<=n, 1<=i<=n;
+}
+
+def init_config(n){
+  @ms(in{i}) = a*(n-i+1) : 1<=i<=n;
+}
+
+def init_spiking_rules(n){
+  [a --> a]'in{i} : 1<=i<=n;
+  [a*(n-i+1) --> a]'m{i} : 1<=i<=n;
+  [a*(j) --> #]'m{i} : 1<=i<=n, 1<=j<=n, j<>n-i+1;
+}

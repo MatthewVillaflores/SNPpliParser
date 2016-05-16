@@ -1,0 +1,16 @@
+@model<spiking_psystems>
+
+def main(){
+  @mu = n1, n2, n3;
+  @mu += n4, n5;
+  @mu += in{i}, jn{j}, kn{k}: j <= k <= i, 1 <= j <= i, 1 <= i <= 3 ;
+  @ms(n1) = a*2;
+  @ms(n2) = a*3;
+  @ms(n3) = a*1;
+
+  @marcs = (n1,n2),(n2,n3);
+
+  [a --> a]'n1;
+  [a*2 --> a]'n2;
+
+}
