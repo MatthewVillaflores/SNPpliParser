@@ -89,11 +89,12 @@ class TreeNode{
 
 void parseFile(char *filename);
 void runMethod(MethodHolder method, vector<Parameter> params);
-void eval_mu(string line);
+void eval_mu(string line, MethodHolder method, vector<Parameter> params);
 void recursiveCreateNeurons(TreeNode& root, vector<Neuron>& neurons, vector<Neuron>& temp);
-void eval_ms(string line);
+void eval_ms(string line, MethodHolder method, vector<Parameter> params);
 void eval_arcs(string line);
 int findMethod(string query);
+string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided);
 void identifyRanges(string entry, TreeNode& root);
 void recursiveBranching(TreeNode& node, Range range);
 vector<string> whitespace_split(string tosplit);
@@ -107,6 +108,7 @@ int checkLineReserveKeyword(string query);
 int checkReserveKeyword(string query);
 int checkSpecialKeyword(string query);
 bool is_number(string s);
+int findFromIndex(string source, string tofind, int index);
 void printMethodHolder(MethodHolder method);
 void printParameter(Parameter param);
 void printSNP();
@@ -201,6 +203,7 @@ void parseFile(char *filename){
 }
 
 void runMethod(MethodHolder method, vector<Parameter> params){
+
   vector<string> lines;
   for(int i=0;i<method.contents.size();i++){
     vector<string> split_by_semicolon = split(method.contents[i], ";");   //CONSIDER:: no semicolon in a line
@@ -232,7 +235,10 @@ void runMethod(MethodHolder method, vector<Parameter> params){
     if(reserve_index >= 0){
       switch(reserve_index){
         case INDEX_MU:
-          eval_mu(lines[i]);
+          eval_mu(lines[i], method, params);
+          break;
+        case INDEX_MS:
+          eval_ms(lines[i], method, params);
           break;
       }
     }
@@ -241,12 +247,15 @@ void runMethod(MethodHolder method, vector<Parameter> params){
   }
 }
 
-void eval_mu(string line){
+void eval_mu(string line, MethodHolder method, vector<Parameter> params){
   string keyword = RESERVE_KEYWORDS[checkReserveKeyword("@mu")];
+  line = matchParameters(line, method.parameters, params);
+
   int mu_index = line.find(keyword);
   string substr = line.substr(mu_index+keyword.length(), line.length());
 
   vector<string> colon_split = split(substr, ":");
+  //Case: Range is specified
   if(colon_split.size() > 1){
     TreeNode root;
     root.label = "root";
@@ -256,6 +265,8 @@ void eval_mu(string line){
     identifyRanges(colon_split[1], root);
 
     //printTraverseTree(root);
+
+    //Check Expression for = | +=
     bool is_newrons = false;
     string buffer = trim(colon_split[0]);
     int delim = buffer.find("+=");
@@ -266,6 +277,7 @@ void eval_mu(string line){
       buffer = trim(buffer.substr(2, buffer.length()));
     }
 
+    //Identify neurons to be created
     vector<string> comma_split = split(buffer, ",");
     vector<Neuron> temp_neurons;
     for(int i=0;i<comma_split.size();i++){
@@ -280,10 +292,12 @@ void eval_mu(string line){
         temp.param.label = comma_split[i].substr(openbraces+1, closebraces-openbraces-1);
         temp_neurons.push_back(temp);
       }                                                       //LIMITATION: Neuron without {}
-
     }
+
     vector<Neuron> new_rons;
     recursiveCreateNeurons(root, new_rons, temp_neurons);
+
+    //Evaluation for expression: += | =
     if(is_newrons){
       snpsystem.neurons = new_rons;
     } else {
@@ -292,7 +306,9 @@ void eval_mu(string line){
       }
     }
 
-  }else{
+  }
+  //Case: No Range Specified
+  else{
     if(colon_split[0].find("{")!=string::npos){
       cout << "Error: No Range given. Line:" << line << endl;
     }
@@ -321,6 +337,7 @@ void eval_mu(string line){
   printSNP();
 }
 
+//Create Tree to Represent Range values
 void recursiveCreateNeurons(TreeNode& node, vector<Neuron>& neurons, vector<Neuron>& temp){
   if(node.children.empty()){
     TreeNode *curr = &node;
@@ -343,16 +360,16 @@ void recursiveCreateNeurons(TreeNode& node, vector<Neuron>& neurons, vector<Neur
   }
 }
 
-void eval_ms(string line){
+void eval_ms(string line, MethodHolder method, vector<Parameter> params){
   string keyword = RESERVE_KEYWORDS[checkReserveKeyword("@ms")];
+  cout << "WOHOO EVALUATE SPIKES!!";
 }
 
 void eval_arcs(string line){
 
 }
 
-
-//Finds the index of the method given a string query
+//Finds the index of the method in MethodHolder list given a string query
 //returns -1 if method does not exist
 int findMethod(string query){
   for(int i=0;i<methods.size();i++){
@@ -361,6 +378,47 @@ int findMethod(string query){
     }
   }
   return -1;
+}
+
+string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
+  if(param_needed.size()!=param_provided.size()){
+    cout << "Parameters do not match: " << line << endl;
+    return "";
+  }
+  vector<string> split_colon = split(line, ":");
+
+  for(int i=0;i<param_needed.size();i++){
+    string param_label = param_needed[i].label;
+    string param_value = to_string(param_provided[i].value);
+
+    int find_val = findFromIndex(split_colon[0], param_label, 0);
+    while(find_val>=0){
+      if(split_colon[0].at(find_val-1) == '{' &&
+         split_colon[0].at(find_val+param_label.length()+1) == '}'){
+        split_colon[0].replace(find_val, param_label.length(), param_value);
+      }
+      find_val = findFromIndex(split_colon[0], param_label, find_val+1);
+    }
+  }
+
+  if(split_colon.size()>1){
+    for(int i=0;i<param_needed.size();i++){
+      
+      string param_label = param_needed[i].label;
+      string param_value = to_string(param_provided[i].value);
+
+      int find_val = findFromIndex(split_colon[1], param_label, 0);           //Additional checks for legitness of param match
+      while(find_val >= 0){
+        split_colon[1].replace(find_val, param_label.length(), param_value);
+        find_val = findFromIndex(split_colon[1], param_label, find_val+1);
+      }
+    }
+
+  }
+
+  stringstream strs;
+  strs << split_colon[0] << ":" << split_colon[1];
+  return strs.str();
 }
 
 void identifyRanges(string entry, TreeNode& root){
@@ -432,6 +490,7 @@ void identifyRanges(string entry, TreeNode& root){
   }
 }
 
+//Recursive branching out of Range tree
 void recursiveBranching(TreeNode& node, Range range){
   if(node.children.empty()){
     TreeNode new_node;
@@ -678,6 +737,18 @@ int checkSpecialKeyword(string query){
   return retval;
 }
 
+//Find a char sequence in a string from a given index up until the end of string
+int findFromIndex(string source, string tofind, int index){
+  string buffer = source.substr(index, source.length());
+  int find_val = buffer.find(tofind);
+  if(find_val == string::npos){
+    return -1;
+  }
+  else{
+    return index + find_val;
+  }
+}
+
 //Check if given string is a number
 bool is_number(string s){
   bool is_number = true;
@@ -736,7 +807,7 @@ void printTraverseTree(TreeNode root){
 }
 
 void check(string r){
-  cout << "=================" << r << ":" << endl;
+  cout << "=================<" << r << ">" << endl;
 }
 void check(){
   cout << "=================" << endl;
