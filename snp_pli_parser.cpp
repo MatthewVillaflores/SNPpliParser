@@ -362,7 +362,8 @@ void recursiveCreateNeurons(TreeNode& node, vector<Neuron>& neurons, vector<Neur
 
 void eval_ms(string line, MethodHolder method, vector<Parameter> params){
   string keyword = RESERVE_KEYWORDS[checkReserveKeyword("@ms")];
-  cout << "WOHOO EVALUATE SPIKES!!";
+  line = matchParameters(line, method.parameters, params);
+
 }
 
 void eval_arcs(string line){
@@ -380,6 +381,119 @@ int findMethod(string query){
   return -1;
 }
 
+//Given a line in pli file, matches parameters for modular style programming
+string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
+  check(line);
+
+  if(param_needed.size()!=param_provided.size()){
+    cout << "Parameters do not match: " << line << endl;
+    return "";
+  }
+
+  stringstream sstream;
+  bool after_colon = false;
+  stack<char> expression_stack;
+  stringstream buffer;
+  int colon_index = line.find(':');
+
+  int temp;
+  if(colon_index!=string::npos){
+    temp = colon_index;
+  } else { 
+    temp = line.length();
+  }
+  for(int iter=0;iter<temp;iter++){
+    switch(line.at(iter)){
+      case '{':
+        expression_stack.push('{');
+        sstream << '{';
+        break;
+      case ')':
+        if(expression_stack.top() == 'a'){
+          expression_stack.pop();
+        } else {
+          sstream << ')';
+          break;
+        }
+      case '}':
+        expression_stack.pop();
+      case '*':
+        if(line.at(iter) == '*' && line.at(iter+1) == '(' && line.at(iter-1) == 'a'){
+          expression_stack.push('a');
+          sstream << "*(";
+          iter++;
+          break;
+        }
+      case '+': case '-': case '/': case ' ':
+        if(buffer.rdbuf()->in_avail()>0){
+          for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+            if(buffer.str()==param_needed[params_iter].label){
+              sstream << to_string(param_provided[params_iter].value);
+            } else {
+              sstream << buffer.str();
+            }
+          }
+          buffer.str("");
+          buffer.clear();
+        }
+        sstream << line.at(iter);
+        break;
+      default:
+        if(expression_stack.empty()){
+          sstream << line.at(iter);
+        } else{
+          buffer << line.at(iter);
+        }
+        break;
+    }  
+  }
+
+  for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+    if(buffer.str()==param_needed[params_iter].label){
+      sstream << to_string(param_provided[params_iter].value);
+    } else {
+      sstream << buffer.str();
+    }
+  }
+  buffer.str("");
+  buffer.clear();
+
+  for(int iter=temp;iter<line.length();iter++){
+    switch(line.at(iter)){
+      case '<': case '=': case ' ':
+        if(buffer.rdbuf()->in_avail()>0){
+          for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+            if(buffer.str()==param_needed[params_iter].label){
+              sstream << to_string(param_provided[params_iter].value);
+            } else {
+              sstream << buffer.str();
+            }
+          }
+          buffer.str("");
+          buffer.clear();
+        }
+        sstream << line.at(iter);
+        break;
+      default:
+        buffer << line.at(iter);
+        break;
+      }
+  }
+
+  for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+    if(buffer.str()==param_needed[params_iter].label){
+      sstream << to_string(param_provided[params_iter].value);
+    } else {
+      sstream << buffer.str();
+    }
+  }
+  buffer.str("");
+  buffer.clear();
+  
+  return(sstream.str());
+}
+
+/**
 string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
   if(param_needed.size()!=param_provided.size()){
     cout << "Parameters do not match: " << line << endl;
@@ -420,6 +534,7 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
   strs << split_colon[0] << ":" << split_colon[1];
   return strs.str();
 }
+**/
 
 void identifyRanges(string entry, TreeNode& root){
   const int lesseq = 1, eqless = 2, less = 3;
