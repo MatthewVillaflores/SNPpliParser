@@ -89,11 +89,19 @@ class TreeNode{
 
 void parseFile(char *filename);
 void runMethod(MethodHolder method, vector<Parameter> params);
+void parseRule(string line, MethodHolder method, vector<Parameter> params);
 void eval_mu(string line, MethodHolder method, vector<Parameter> params);
 void recursiveCreateNeurons(TreeNode& root, vector<Neuron>& neurons, vector<Neuron>& temp);
 void eval_ms(string line, MethodHolder method, vector<Parameter> params);
-void eval_arcs(string line);
+void recursiveCreateSpikes(TreeNode node, string entry);
+void setSpike(string neuron_label, int spikes);
+void addSpike(string neuron_label, int spikes);
+void eval_arcs(string line, MethodHolder method, vector<Parameter> params);
+void recursiveCreateSynapses(TreeNode node, string entry);
+void addSynapse(string entry);
 int findMethod(string query);
+int evalMathExp(string mathexp);
+string matchParameters(string line, vector<Parameter> params);
 string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided);
 void identifyRanges(string entry, TreeNode& root);
 void recursiveBranching(TreeNode& node, Range range);
@@ -135,6 +143,7 @@ int main(int argc, char *argv[]){
 
 vector<MethodHolder> methods;
 SNP snpsystem;
+int linecount;
 
 void parseFile(char *filename){
   
@@ -147,7 +156,7 @@ void parseFile(char *filename){
 
   string buffer;
   getline(file, buffer);
-
+  linecount = 1;
   //Check header
   if(buffer != HEADER){
     cout << "SNP pli file must have \"" << HEADER << "\" as file header\n";
@@ -156,6 +165,7 @@ void parseFile(char *filename){
   vector<MethodHolder> new_methods;
 
   while(getline(file, buffer)){
+    linecount++;
     if(buffer.find("def")!=string::npos){
       MethodHolder method;
       
@@ -199,7 +209,7 @@ void parseFile(char *filename){
   vector<Parameter> params;
 
   runMethod(*main, params);
-
+  printSNP();
 }
 
 void runMethod(MethodHolder method, vector<Parameter> params){
@@ -240,11 +250,26 @@ void runMethod(MethodHolder method, vector<Parameter> params){
         case INDEX_MS:
           eval_ms(lines[i], method, params);
           break;
+        case INDEX_ARCS:
+          eval_arcs(lines[i], method, params);
+          break;
       }
     }
+    int open_square = lines[i].find("[");
+    int close_square = lines[i].find("]");
+    int alpha_a = lines[i].find("a");
 
-
+    if(open_square!=string::npos && close_square!=string::npos && alpha_a!=string::npos 
+      && open_square<alpha_a && alpha_a<close_square){
+      parseRule(lines[i], method, params);
+    }
   }
+}
+
+void parseRule(string line, MethodHolder method, vector<Parameter> params){
+  check(line);
+  line = matchParameters(line, method.parameters, params);
+  check(line);
 }
 
 void eval_mu(string line, MethodHolder method, vector<Parameter> params){
@@ -319,6 +344,7 @@ void eval_mu(string line, MethodHolder method, vector<Parameter> params){
       for(int i=0;i<comma_split.size();i++){
         Neuron new_ron;
         new_ron.label = trim(comma_split[i]);
+        new_ron.spikes = 0;
         snpsystem.neurons.push_back(new_ron);
       }
     } else {
@@ -329,12 +355,12 @@ void eval_mu(string line, MethodHolder method, vector<Parameter> params){
       for(int i=0;i<comma_split.size();i++){
         Neuron new_ron;
         new_ron.label = trim(comma_split[i]);
+        new_ron.spikes = 0;
         new_rons.push_back(new_ron);
       }
       snpsystem.neurons = new_rons;
     }
   }
-  printSNP();
 }
 
 //Create Tree to Represent Range values
@@ -348,6 +374,7 @@ void recursiveCreateNeurons(TreeNode& node, vector<Neuron>& neurons, vector<Neur
           stringstream ss;
           ss << temp[i].label << "{" << curr->value << "}";
           new_ron.label = ss.str();
+          new_ron.spikes = 0;
           neurons.push_back(new_ron);
         }
       }
@@ -362,13 +389,140 @@ void recursiveCreateNeurons(TreeNode& node, vector<Neuron>& neurons, vector<Neur
 
 void eval_ms(string line, MethodHolder method, vector<Parameter> params){
   string keyword = RESERVE_KEYWORDS[checkReserveKeyword("@ms")];
+  line = trim(line);
+  if(!params.empty()){
+    line = matchParameters(line, method.parameters, params);
+  }
+  vector<string> colon_split = split(line, ":");
+  if(colon_split.size()>1){
+    TreeNode root;
+    root.value = -1;
+    root.label = "root";
+
+    identifyRanges(colon_split[1], root);
+
+    recursiveCreateSpikes(root, colon_split[0]);
+  } else {
+    string neuron_label = line.substr(4, line.find(")")-4);
+    bool set_spike = (line.find("+=") == string::npos);
+    string mathexp = line.substr(line.find("a*"), line.length());
+    mathexp = mathexp.substr(2, mathexp.length()-2);
+    int mathexpresult = evalMathExp(mathexp);
+    if(set_spike){
+      setSpike(neuron_label, mathexpresult);
+    } else {
+      addSpike(neuron_label, mathexpresult);
+    }
+  }
+
+}
+
+void recursiveCreateSpikes(TreeNode node, string entry){
+
+  for(int i=0;i<node.children.size();i++){
+    recursiveCreateSpikes(node.children[i], entry);
+  }
+
+  TreeNode *curr = &node;
+
+  if(node.children.empty()){
+    vector<Parameter> params;
+    while(curr->label != "root"){
+      Parameter new_param;
+      new_param.label = curr->label;
+      new_param.value = curr->value;
+      params.push_back(new_param);
+      curr = curr->parent;
+    }
+    string to_eval = matchParameters(entry, params);
+    string neuron_label = to_eval.substr(4, to_eval.find(")")-4);
+    bool set_spike = (to_eval.find("+=") == string::npos);
+    string mathexp = to_eval.substr(to_eval.find("a*("), to_eval.length());
+    mathexp = mathexp.substr(2, mathexp.length()-2);
+    int mathexpresult = evalMathExp(mathexp);
+    if(set_spike){
+      setSpike(neuron_label, mathexpresult);
+    } else {
+      addSpike(neuron_label, mathexpresult);
+    }
+  }
+}
+
+void setSpike(string neuron_label, int spikes){
+  for(int i=0;i<snpsystem.neurons.size();i++){
+    if(snpsystem.neurons[i].label == neuron_label){
+      snpsystem.neurons[i].spikes = spikes;
+    }
+  }
+}
+
+void addSpike(string neuron_label, int spikes){
+  for(int i=0;i<snpsystem.neurons.size();i++){
+    if(snpsystem.neurons[i].label == neuron_label){
+      snpsystem.neurons[i].spikes += spikes;
+    }
+  }
+}
+
+void eval_arcs(string line, MethodHolder method, vector<Parameter> params){
+  check(line);
   line = matchParameters(line, method.parameters, params);
+  check(line);
+  vector<string> colon_split = split(line, ":");
 
+  if(colon_split.size()>1){
+    TreeNode root;
+    root.label = "root";
+    root.value = -1;
+    identifyRanges(colon_split[1], root);
+
+    bool set_synapses = (colon_split[0].find("+=")==string::npos);
+    recursiveCreateSynapses(root, colon_split[0]);
+  } else {
+    addSynapse(colon_split[0]);
+  }
 }
 
-void eval_arcs(string line){
+void recursiveCreateSynapses(TreeNode node, string entry){
+  for(int i=0;i<node.children.size();i++){
+    recursiveCreateSynapses(node.children[i], entry);
+  }
 
+  TreeNode *curr = &node;
+
+  if(node.children.empty()){
+    vector<Parameter> params;
+    while(curr->label != "root"){
+      Parameter new_param;
+      new_param.label = curr->label;
+      new_param.value = curr->value;
+      params.push_back(new_param);
+      curr = curr->parent;
+    }
+    string to_eval = matchParameters(entry, params);
+    check(to_eval);
+    addSynapse(to_eval);
+  }
 }
+
+void addSynapse(string entry){
+  string buffer = entry;
+  int open_index = buffer.find("(");
+  while(open_index != string::npos){
+    buffer = buffer.substr(open_index+1, buffer.length());
+    int comma_index = buffer.find(",");
+    int close_index = buffer.find(")");
+    string neuron_1 = trim(buffer.substr(0, comma_index));
+    string neuron_2 = trim(buffer.substr(comma_index+1, close_index - comma_index - 1));
+    check(neuron_1 + ":" + neuron_2);
+    open_index = buffer.find("(");
+    Synapse syn;
+    syn.from = neuron_1;
+    syn.to = neuron_2;
+    snpsystem.synapses.push_back(syn);
+  }
+}
+
 
 //Finds the index of the method in MethodHolder list given a string query
 //returns -1 if method does not exist
@@ -381,10 +535,137 @@ int findMethod(string query){
   return -1;
 }
 
-//Given a line in pli file, matches parameters for modular style programming
-string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
-  check(line);
+int evalMathExp(string mathexp){
+  vector<string> postfix_notation;
+  stack<char> opstack;
 
+  for(int i=0;i<mathexp.length();i++){
+    char currchar = mathexp.at(i);
+    if(currchar=='+'){
+      char stack_top = opstack.top();
+      while(stack_top == '+' || stack_top == '-' || stack_top=='/' ||
+           stack_top =='*' || stack_top=='^'){
+        string opp(1, stack_top);
+        postfix_notation.push_back(opp);
+        opstack.pop();
+        stack_top = opstack.top();
+      }
+      opstack.push('+');
+    } else if(currchar=='-'){
+      char stack_top = opstack.top();
+      while(stack_top == '-' || stack_top=='/' ||
+           stack_top =='*' || stack_top=='^'){
+        string opp(1, stack_top);
+        postfix_notation.push_back(opp);
+        opstack.pop();
+        stack_top = opstack.top();
+      }
+      opstack.push('-');
+    } else if(currchar=='/'){
+      char stack_top = opstack.top();
+      while(stack_top=='/' || stack_top =='*' || stack_top=='^'){
+        string opp(1, stack_top);
+        postfix_notation.push_back(opp);
+        opstack.pop();
+        stack_top = opstack.top();
+      }
+      opstack.push('/');
+    } else if(currchar=='*'){
+      char stack_top = opstack.top();
+      while(stack_top =='*' || stack_top=='^'){
+        string opp(1, stack_top);
+        postfix_notation.push_back(opp);
+        opstack.pop();
+        stack_top = opstack.top();
+      }
+      opstack.push('*');
+    } else if(currchar=='^'){
+      char stack_top = opstack.top();
+      while(stack_top=='^'){
+        string opp(1, stack_top);
+        postfix_notation.push_back(opp);
+        opstack.pop();
+        stack_top = opstack.top();
+      }
+      opstack.push('^');
+    } else if(currchar=='('){
+      opstack.push('(');
+    } else if(currchar==')'){
+      while(opstack.top()!='('){
+        string opp(1, opstack.top());
+        postfix_notation.push_back(opp);
+        opstack.pop();
+      }
+      opstack.pop();
+    } else if(currchar==' '){
+      //donothing
+    } else {
+      stringstream operand_buffer;
+      operand_buffer << currchar;
+      while( (i+1) < mathexp.length() && mathexp.at(i+1) != '+' && mathexp.at(i+1) != '-' &&
+            mathexp.at(i+1) != '*' && mathexp.at(i+1) != '/' &&
+            mathexp.at(i+1) != '^' && mathexp.at(i+1) != '(' &&
+            mathexp.at(i+1) != ')' && mathexp.at(i+1) != ' '){
+        i++;
+        currchar = mathexp.at(i+1);
+        operand_buffer << currchar;
+      }
+      postfix_notation.push_back(operand_buffer.str());
+    }
+  }
+
+  while(!opstack.empty()){
+    string opp(1, opstack.top());
+    postfix_notation.push_back(opp);
+    opstack.pop();
+  }
+
+  stack<int> evalstack;
+  for(int i=0;i<postfix_notation.size();i++){
+    if(postfix_notation[i]=="+"){
+      int op_a = evalstack.top(); evalstack.pop();
+      int op_b = evalstack.top(); evalstack.pop();
+      evalstack.push(op_a+op_b);
+    } else if(postfix_notation[i]=="-"){
+      int op_a = evalstack.top(); evalstack.pop();
+      int op_b = evalstack.top(); evalstack.pop();
+      evalstack.push(op_b-op_a);
+    } else if(postfix_notation[i]=="*"){
+      int op_a = evalstack.top(); evalstack.pop();
+      int op_b = evalstack.top(); evalstack.pop();
+      evalstack.push(op_a*op_b);
+    } else if(postfix_notation[i]=="/"){
+      int op_a = evalstack.top(); evalstack.pop();
+      int op_b = evalstack.top(); evalstack.pop();
+      evalstack.push(op_b/op_a);
+    } else if(postfix_notation[i]=="^"){
+      int op_a = evalstack.top(); evalstack.pop();
+      int op_b = evalstack.top(); evalstack.pop();
+      evalstack.push(pow(op_b, op_a));
+    } else {
+      evalstack.push(stoi(postfix_notation[i]));
+    }
+  }
+  return evalstack.top();
+}
+
+//Given a line in pli file, matches parameters for modular style programming
+string matchParameters(string line, vector<Parameter> params){
+  vector<Parameter> param_needed;
+  vector<Parameter> param_provided;
+  for(int i=0;i<params.size();i++){
+    Parameter p_need;
+    Parameter p_provide;
+    p_need.label = params[i].label;
+    p_provide.value = params[i].value;
+    param_needed.push_back(p_need);
+    param_provided.push_back(p_provide);
+  }
+  return matchParameters(line, param_needed, param_provided);
+}
+
+//Overloaded method
+string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
   if(param_needed.size()!=param_provided.size()){
     cout << "Parameters do not match: " << line << endl;
     return "";
@@ -402,6 +683,7 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
   } else { 
     temp = line.length();
   }
+  //First half, before colon (if colon exists)
   for(int iter=0;iter<temp;iter++){
     switch(line.at(iter)){
       case '{':
@@ -409,7 +691,7 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
         sstream << '{';
         break;
       case ')':
-        if(expression_stack.top() == 'a'){
+        if(!expression_stack.empty() && expression_stack.top() == 'a'){
           expression_stack.pop();
         } else {
           sstream << ')';
@@ -426,12 +708,15 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
         }
       case '+': case '-': case '/': case ' ':
         if(buffer.rdbuf()->in_avail()>0){
+          bool param_match = false;
           for(int params_iter=0;params_iter<param_needed.size();params_iter++){
             if(buffer.str()==param_needed[params_iter].label){
               sstream << to_string(param_provided[params_iter].value);
-            } else {
-              sstream << buffer.str();
+              param_match = true;
             }
+          }
+          if(!param_match){
+            sstream << buffer.str();
           }
           buffer.str("");
           buffer.clear();
@@ -447,27 +732,35 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
         break;
     }  
   }
-
-  for(int params_iter=0;params_iter<param_needed.size();params_iter++){
-    if(buffer.str()==param_needed[params_iter].label){
-      sstream << to_string(param_provided[params_iter].value);
-    } else {
+  if(buffer.rdbuf()->in_avail()>0){
+    bool param_match = false;
+    for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+      if(buffer.str()==param_needed[params_iter].label){
+        sstream << to_string(param_provided[params_iter].value);
+        param_match = true;
+      }
+    }
+    if(!param_match){
       sstream << buffer.str();
     }
+    buffer.str("");
+    buffer.clear();
   }
-  buffer.str("");
-  buffer.clear();
 
+  //next(half)
   for(int iter=temp;iter<line.length();iter++){
     switch(line.at(iter)){
-      case '<': case '=': case ' ':
+      case '<': case '=': case ' ': case ',':
         if(buffer.rdbuf()->in_avail()>0){
+          bool param_match = false;
           for(int params_iter=0;params_iter<param_needed.size();params_iter++){
             if(buffer.str()==param_needed[params_iter].label){
               sstream << to_string(param_provided[params_iter].value);
-            } else {
-              sstream << buffer.str();
+              param_match = true;
             }
+          }
+          if(!param_match){
+            sstream << buffer.str();
           }
           buffer.str("");
           buffer.clear();
@@ -479,84 +772,58 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
         break;
       }
   }
-
-  for(int params_iter=0;params_iter<param_needed.size();params_iter++){
-    if(buffer.str()==param_needed[params_iter].label){
-      sstream << to_string(param_provided[params_iter].value);
-    } else {
+  if(buffer.rdbuf()->in_avail()>0){
+    bool param_match = false;
+    for(int params_iter=0;params_iter<param_needed.size();params_iter++){
+      if(buffer.str()==param_needed[params_iter].label){
+        sstream << to_string(param_provided[params_iter].value);
+        param_match = true;
+      }
+    }
+    if(!param_match){
       sstream << buffer.str();
     }
+    buffer.str("");
+    buffer.clear();
   }
-  buffer.str("");
-  buffer.clear();
-  
+
   return(sstream.str());
 }
 
-/**
-string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
-  if(param_needed.size()!=param_provided.size()){
-    cout << "Parameters do not match: " << line << endl;
-    return "";
-  }
-  vector<string> split_colon = split(line, ":");
-
-  for(int i=0;i<param_needed.size();i++){
-    string param_label = param_needed[i].label;
-    string param_value = to_string(param_provided[i].value);
-
-    int find_val = findFromIndex(split_colon[0], param_label, 0);
-    while(find_val>=0){
-      if(split_colon[0].at(find_val-1) == '{' &&
-         split_colon[0].at(find_val+param_label.length()+1) == '}'){
-        split_colon[0].replace(find_val, param_label.length(), param_value);
-      }
-      find_val = findFromIndex(split_colon[0], param_label, find_val+1);
-    }
-  }
-
-  if(split_colon.size()>1){
-    for(int i=0;i<param_needed.size();i++){
-      
-      string param_label = param_needed[i].label;
-      string param_value = to_string(param_provided[i].value);
-
-      int find_val = findFromIndex(split_colon[1], param_label, 0);           //Additional checks for legitness of param match
-      while(find_val >= 0){
-        split_colon[1].replace(find_val, param_label.length(), param_value);
-        find_val = findFromIndex(split_colon[1], param_label, find_val+1);
-      }
-    }
-
-  }
-
-  stringstream strs;
-  strs << split_colon[0] << ":" << split_colon[1];
-  return strs.str();
-}
-**/
-
+//Identify range of variables given
 void identifyRanges(string entry, TreeNode& root){
   const int lesseq = 1, eqless = 2, less = 3;
   vector<string> comma_split = split(entry, ",");
   vector<Range> ranges;
+  vector<Range> exceptions;
   for(int i=0;i<comma_split.size();i++){
     Range range;
     int delim1 = -1;
     int delim1_mode = -1; 
+    //CASE <=
     if(comma_split[i].find("<=")!=string::npos){
       delim1 = comma_split[i].find("<=");
       delim1_mode = lesseq;
-
     }
+    //CASE =<
     else if(comma_split[i].find("=<")!=string::npos){
       delim1 = comma_split[i].find("=<");
       delim1_mode = eqless;
     }
+    //CASE <
     else if(comma_split[i].find("<")!= string::npos){
       delim1 = comma_split[i].find("<");
       delim1_mode = less;
     }
+    //CASE <>
+    else if(comma_split[i].find("<>")){
+      delim1 = comma_split[i].find("<>");
+      range.label = trim(comma_split[i].substr(0, delim1));
+      range.x1 = trim(comma_split[i].substr(delim1+2, comma_split[i].length()));
+      exceptions.push_back(range);
+      continue;
+    }
+
     string substr = comma_split[i].substr(0, delim1);
     range.x1 = trim(substr);
     if(delim1_mode == less){
@@ -600,7 +867,6 @@ void identifyRanges(string entry, TreeNode& root){
   stack<int> range_stack;
   
   for(int i=ranges.size()-1;i>=0;i--){
-    printRange(ranges[i]);
     recursiveBranching(root, ranges[i]);
   }
 }
@@ -609,6 +875,8 @@ void identifyRanges(string entry, TreeNode& root){
 void recursiveBranching(TreeNode& node, Range range){
   if(node.children.empty()){
     TreeNode new_node;
+
+    //Left hand side is a constant && Right hand side is a constant
     if(is_number(range.x1) && is_number(range.x2)){
       int x1 = stoi(range.x1);
       int x2 = stoi(range.x2);
@@ -622,12 +890,13 @@ void recursiveBranching(TreeNode& node, Range range){
         node.children.push_back(new_node);
       }
     } 
+    //Left hand side is a constant && Right hand side is not
     else if(is_number(range.x1) && !is_number(range.x2)){
       int x1 = stoi(range.x1);
       int x2;
       bool halt = false;
       TreeNode *curr = &node;
-      while(!halt){
+      while(!halt&&curr->parent->label!="root"){
         if(curr->label == range.x2){
           x2 = curr->value;
           halt = true;
@@ -645,6 +914,7 @@ void recursiveBranching(TreeNode& node, Range range){
         node.children.push_back(new_node);
       }
     }
+    //Left hand side is not a constant && Right hand side is a constant
     else if(!is_number(range.x1) && is_number(range.x2)){
       int x2 = stoi(range.x2);
       int x1;
@@ -894,7 +1164,11 @@ void printParameter(Parameter param){
 void printSNP(){
   cout << "Neurons:" << endl;
   for(int i=0;i<snpsystem.neurons.size();i++){
-    cout << "\t" << snpsystem.neurons[i].label <<  endl;
+    cout << "\t" << snpsystem.neurons[i].label << "::" << snpsystem.neurons[i].spikes <<  endl;
+  }
+  cout << "Synapses:" << endl;
+  for(int i=0;i<snpsystem.synapses.size();i++){
+    cout << "\t" << snpsystem.synapses[i].from << ">>" << snpsystem.synapses[i].to << endl;
   }
 }
 
