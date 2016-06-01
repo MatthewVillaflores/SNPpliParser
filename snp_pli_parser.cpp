@@ -267,9 +267,9 @@ void runMethod(MethodHolder method, vector<Parameter> params){
 }
 
 void parseRule(string line, MethodHolder method, vector<Parameter> params){
-  check(line);
+  check("rule line:" +line);
   line = matchParameters(line, method.parameters, params);
-  check(line);
+  check("rule line:" +line);
 }
 
 void eval_mu(string line, MethodHolder method, vector<Parameter> params){
@@ -465,9 +465,7 @@ void addSpike(string neuron_label, int spikes){
 }
 
 void eval_arcs(string line, MethodHolder method, vector<Parameter> params){
-  check(line);
   line = matchParameters(line, method.parameters, params);
-  check(line);
   vector<string> colon_split = split(line, ":");
 
   if(colon_split.size()>1){
@@ -500,7 +498,6 @@ void recursiveCreateSynapses(TreeNode node, string entry){
       curr = curr->parent;
     }
     string to_eval = matchParameters(entry, params);
-    check(to_eval);
     addSynapse(to_eval);
   }
 }
@@ -514,7 +511,6 @@ void addSynapse(string entry){
     int close_index = buffer.find(")");
     string neuron_1 = trim(buffer.substr(0, comma_index));
     string neuron_2 = trim(buffer.substr(comma_index+1, close_index - comma_index - 1));
-    check(neuron_1 + ":" + neuron_2);
     open_index = buffer.find("(");
     Synapse syn;
     syn.from = neuron_1;
@@ -542,50 +538,60 @@ int evalMathExp(string mathexp){
   for(int i=0;i<mathexp.length();i++){
     char currchar = mathexp.at(i);
     if(currchar=='+'){
-      char stack_top = opstack.top();
-      while(stack_top == '+' || stack_top == '-' || stack_top=='/' ||
-           stack_top =='*' || stack_top=='^'){
-        string opp(1, stack_top);
-        postfix_notation.push_back(opp);
-        opstack.pop();
-        stack_top = opstack.top();
+      if(!opstack.empty()){
+        char stack_top = opstack.top();
+        while(stack_top == '+' || stack_top == '-' || stack_top=='/' ||
+             stack_top =='*' || stack_top=='^'){
+          string opp(1, stack_top);
+          postfix_notation.push_back(opp);
+          opstack.pop();
+          stack_top = opstack.top();
+        }
       }
       opstack.push('+');
     } else if(currchar=='-'){
-      char stack_top = opstack.top();
-      while(stack_top == '-' || stack_top=='/' ||
-           stack_top =='*' || stack_top=='^'){
-        string opp(1, stack_top);
-        postfix_notation.push_back(opp);
-        opstack.pop();
-        stack_top = opstack.top();
+      if(!opstack.empty()){
+        char stack_top = opstack.top();
+        while(stack_top == '-' || stack_top=='/' ||
+             stack_top =='*' || stack_top=='^'){
+          string opp(1, stack_top);
+          postfix_notation.push_back(opp);
+          opstack.pop();
+          stack_top = opstack.top();
+        }
       }
       opstack.push('-');
     } else if(currchar=='/'){
-      char stack_top = opstack.top();
-      while(stack_top=='/' || stack_top =='*' || stack_top=='^'){
-        string opp(1, stack_top);
-        postfix_notation.push_back(opp);
-        opstack.pop();
-        stack_top = opstack.top();
+      if(!opstack.empty()){
+        char stack_top = opstack.top();
+        while(stack_top=='/' || stack_top =='*' || stack_top=='^'){
+          string opp(1, stack_top);
+          postfix_notation.push_back(opp);
+          opstack.pop();
+          stack_top = opstack.top();
+        }
       }
       opstack.push('/');
     } else if(currchar=='*'){
-      char stack_top = opstack.top();
-      while(stack_top =='*' || stack_top=='^'){
-        string opp(1, stack_top);
-        postfix_notation.push_back(opp);
-        opstack.pop();
-        stack_top = opstack.top();
+      if(!opstack.empty()){
+        char stack_top = opstack.top();
+        while(stack_top =='*' || stack_top=='^'){
+          string opp(1, stack_top);
+          postfix_notation.push_back(opp);
+          opstack.pop();
+          stack_top = opstack.top();
+        }
       }
       opstack.push('*');
     } else if(currchar=='^'){
-      char stack_top = opstack.top();
-      while(stack_top=='^'){
-        string opp(1, stack_top);
-        postfix_notation.push_back(opp);
-        opstack.pop();
-        stack_top = opstack.top();
+      if(!opstack.empty()){
+        char stack_top = opstack.top();
+        while(stack_top=='^'){
+          string opp(1, stack_top);
+          postfix_notation.push_back(opp);
+          opstack.pop();
+          stack_top = opstack.top();
+        }
       }
       opstack.push('^');
     } else if(currchar=='('){
@@ -613,6 +619,7 @@ int evalMathExp(string mathexp){
       postfix_notation.push_back(operand_buffer.str());
     }
   }
+  check("MATH EXP EVAL");
 
   while(!opstack.empty()){
     string opp(1, opstack.top());
@@ -670,22 +677,19 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
     cout << "Parameters do not match: " << line << endl;
     return "";
   }
-
+  
   stringstream sstream;
   bool after_colon = false;
   stack<char> expression_stack;
   stringstream buffer;
   int colon_index = line.find(':');
-
-  int temp;
-  if(colon_index!=string::npos){
-    temp = colon_index;
-  } else { 
-    temp = line.length();
-  }
-  //First half, before colon (if colon exists)
-  for(int iter=0;iter<temp;iter++){
+  
+  for(int iter=0;iter<line.length();iter++){
     switch(line.at(iter)){
+      case ':':
+        expression_stack.push(':');
+        sstream << ':';
+        break;
       case '{':
         expression_stack.push('{');
         sstream << '{';
@@ -693,12 +697,14 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
       case ')':
         if(!expression_stack.empty() && expression_stack.top() == 'a'){
           expression_stack.pop();
+          goto marker;
         } else {
           sstream << ')';
           break;
         }
       case '}':
         expression_stack.pop();
+        goto marker;
       case '*':
         if(line.at(iter) == '*' && line.at(iter+1) == '(' && line.at(iter-1) == 'a'){
           expression_stack.push('a');
@@ -706,7 +712,9 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
           iter++;
           break;
         }
-      case '+': case '-': case '/': case ' ':
+      case '+': case '-': case '/': case '>': 
+      case '<': case '=': case ' ': case ',':
+        marker:
         if(buffer.rdbuf()->in_avail()>0){
           bool param_match = false;
           for(int params_iter=0;params_iter<param_needed.size();params_iter++){
@@ -730,47 +738,7 @@ string matchParameters(string line, vector<Parameter> param_needed, vector<Param
           buffer << line.at(iter);
         }
         break;
-    }  
-  }
-  if(buffer.rdbuf()->in_avail()>0){
-    bool param_match = false;
-    for(int params_iter=0;params_iter<param_needed.size();params_iter++){
-      if(buffer.str()==param_needed[params_iter].label){
-        sstream << to_string(param_provided[params_iter].value);
-        param_match = true;
-      }
     }
-    if(!param_match){
-      sstream << buffer.str();
-    }
-    buffer.str("");
-    buffer.clear();
-  }
-
-  //next(half)
-  for(int iter=temp;iter<line.length();iter++){
-    switch(line.at(iter)){
-      case '<': case '=': case ' ': case ',':
-        if(buffer.rdbuf()->in_avail()>0){
-          bool param_match = false;
-          for(int params_iter=0;params_iter<param_needed.size();params_iter++){
-            if(buffer.str()==param_needed[params_iter].label){
-              sstream << to_string(param_provided[params_iter].value);
-              param_match = true;
-            }
-          }
-          if(!param_match){
-            sstream << buffer.str();
-          }
-          buffer.str("");
-          buffer.clear();
-        }
-        sstream << line.at(iter);
-        break;
-      default:
-        buffer << line.at(iter);
-        break;
-      }
   }
   if(buffer.rdbuf()->in_avail()>0){
     bool param_match = false;
@@ -896,14 +864,28 @@ void recursiveBranching(TreeNode& node, Range range){
       int x2;
       bool halt = false;
       TreeNode *curr = &node;
-      while(!halt&&curr->parent->label!="root"){
+      string match = ":";
+      match.append(range.x2);
+      vector<Parameter> params;
+      while(curr->label!="root"){
+        Parameter param;
+        param.label = curr->label;
+        param.value = curr->value;
+        params.push_back(param);
+        /**
         if(curr->label == range.x2){
           x2 = curr->value;
           halt = true;
         } else {
           curr = curr->parent;
         }
+        **/
+        curr = curr->parent;
       }
+      match = matchParameters(match, params);
+      match = match.substr(1, match.length());
+      x2 = evalMathExp(match);
+      
       if(!range.inclusive_x1) x1++;
       if(range.inclusive_x2) x2++;
       for(x1;x1<x2;x1++){
@@ -920,14 +902,28 @@ void recursiveBranching(TreeNode& node, Range range){
       int x1;
       bool halt = false;
       TreeNode *curr = &node;
-      while(!halt){
+      
+      string match = ":";
+      match.append(range.x1);
+      vector<Parameter> params;
+      while(curr->label!="root"){
+        Parameter param;
+        param.label = curr->label;
+        param.value = curr->value;
+        params.push_back(param);
+        /**
         if(curr->label == range.x1){
           x1 = curr->value;
           halt = true;
         } else {
           curr = curr->parent;
         }
+        **/
+        curr = curr->parent;
       }
+      match = matchParameters(match, params);
+      x1 = evalMathExp(match.substr(1, match.length()));
+
       if(!range.inclusive_x1) x1++;
       if(range.inclusive_x2) x2++;
       for(x1;x1<x2;x1++){
@@ -943,7 +939,28 @@ void recursiveBranching(TreeNode& node, Range range){
       int x2;
       bool halt = false;
       TreeNode *curr = &node;
-      while(!halt){
+      
+      string match_x1 = ":";
+      string match_x2 = ":";
+      match_x1.append(range.x1);
+      match_x2.append(range.x2);
+      vector<Parameter> params;
+
+      while(curr->label!="root"){
+        Parameter param;
+        param.label = curr->label;
+        param.value = curr->value;
+        params.push_back(param);
+        curr = curr->parent;
+      }
+
+      match_x1 = matchParameters(match_x1, params);
+      match_x2 = matchParameters(match_x2, params);
+      match_x1 = match_x1.substr(1, match_x1.length());
+      match_x2 = match_x2.substr(1, match_x2.length());
+      x1 = evalMathExp(match_x1);
+      x2 = evalMathExp(match_x2);
+      /**while(!halt){
         if(curr->label == range.x1){
           x1 = curr->value;
           halt = true;
@@ -960,7 +977,8 @@ void recursiveBranching(TreeNode& node, Range range){
         } else {
           curr = curr->parent;
         }
-      }
+      }**/
+
       if(!range.inclusive_x1) x1++;
       if(range.inclusive_x2) x2++;
       for(x1;x1<x2;x1++){
