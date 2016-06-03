@@ -679,9 +679,9 @@ int evalMathExp(string mathexp){
   vector<string> postfix_notation;
   stack<char> opstack;
 
-  if(trim(mathexp).empty() || trim(mathexp) == "#"){
+  if(trim(mathexp).empty()){
     return 0;
-  }  
+  }
   for(int i=0;i<mathexp.length();i++){
     char currchar = mathexp.at(i);
     cout << " MATHEXP BOYS " << currchar << endl;
