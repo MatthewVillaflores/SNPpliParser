@@ -3,7 +3,7 @@
 def main(){
   @mu = n1, n2, n3;
   @mu += n4, n5;
-  @mu += in{i}, jn{j}, kn{k} : j+1<=k<=i+2, 1<=j<=i, 1<=i<=3;
+  @mu += in{i}, jn{j}:1<=j<=3, 1<=i<=3, j<>i;
   @ms(n1) = a*2;
   @ms(n2) = a*3;
   @ms(n3) = a*(1+2*(5+2^3));

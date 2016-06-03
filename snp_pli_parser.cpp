@@ -101,10 +101,11 @@ void recursiveCreateSynapses(TreeNode node, string entry);
 void addSynapse(string entry);
 int findMethod(string query);
 int evalMathExp(string mathexp);
+string subsMathExp(string line, vector<Parameter> params);
 string matchParameters(string line, vector<Parameter> params);
 string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided);
 void identifyRanges(string entry, TreeNode& root);
-void recursiveBranching(TreeNode& node, Range range);
+void recursiveBranching(TreeNode& node, Range range, vector<Range> exceptions);
 vector<string> whitespace_split(string tosplit);
 vector<string> split(string tosplit, string delimiter);
 string trim(string entry);
@@ -270,6 +271,47 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
   check("rule line:" +line);
   line = matchParameters(line, method.parameters, params);
   check("rule line:" +line);
+
+  Rule rule;
+
+  stack<char> parse_stack;
+  for(int i=0;i<line.length();i++){
+    char currchar = line.at(i);
+    if(currchar == '['){
+      parse_stack.push('[');
+    } else if(currchar == ']'){
+      parse_stack.pop();
+    } else if(currchar == 'a'){
+
+    } else if(currchar == '-'){
+
+    } else if(currchar == ':'){
+      
+    } else if(currchar == '\"'){
+      i++;currchar = line.at(i);
+      stringstream regex;
+      while(currchar!='\"'){
+        regex << currchar;
+        i++;currchar = line.at(i);
+      }
+      rule.regex = regex.str();
+    }
+  }
+  vector<string> colon_split = split(line, ":");
+
+  if(colon_split.size() > 1){
+    TreeNode root;
+    root.label = "root";
+    root.value = -1;
+    root.parent = NULL;
+
+    identifyRanges(colon_split[1], root);
+    cout << colon_split[0];
+  
+
+  } else {
+
+  }
 }
 
 void eval_mu(string line, MethodHolder method, vector<Parameter> params){
@@ -619,14 +661,13 @@ int evalMathExp(string mathexp){
       postfix_notation.push_back(operand_buffer.str());
     }
   }
-  check("MATH EXP EVAL");
-
+  
   while(!opstack.empty()){
     string opp(1, opstack.top());
     postfix_notation.push_back(opp);
     opstack.pop();
   }
-
+  
   stack<int> evalstack;
   for(int i=0;i<postfix_notation.size();i++){
     if(postfix_notation[i]=="+"){
@@ -653,7 +694,15 @@ int evalMathExp(string mathexp){
       evalstack.push(stoi(postfix_notation[i]));
     }
   }
+  
   return evalstack.top();
+}
+
+string subsMathExp(string line, vector<Parameter> params){
+  string buffer = ":";
+  buffer.append(line);
+  buffer = matchParameters(buffer, params);
+  return buffer.substr(1, buffer.length());
 }
 
 //Given a line in pli file, matches parameters for modular style programming
@@ -778,20 +827,19 @@ void identifyRanges(string entry, TreeNode& root){
       delim1 = comma_split[i].find("=<");
       delim1_mode = eqless;
     }
+    //CASE <>
+    else if(comma_split[i].find("<>")){
+      delim1 = comma_split[i].find("<>");
+      range.x1 = trim(comma_split[i].substr(0, delim1));
+      range.x2 = trim(comma_split[i].substr(delim1+2, comma_split[i].length()));
+      exceptions.push_back(range);
+      continue;
+    }
     //CASE <
     else if(comma_split[i].find("<")!= string::npos){
       delim1 = comma_split[i].find("<");
       delim1_mode = less;
     }
-    //CASE <>
-    else if(comma_split[i].find("<>")){
-      delim1 = comma_split[i].find("<>");
-      range.label = trim(comma_split[i].substr(0, delim1));
-      range.x1 = trim(comma_split[i].substr(delim1+2, comma_split[i].length()));
-      exceptions.push_back(range);
-      continue;
-    }
-
     string substr = comma_split[i].substr(0, delim1);
     range.x1 = trim(substr);
     if(delim1_mode == less){
@@ -833,155 +881,74 @@ void identifyRanges(string entry, TreeNode& root){
   }
 
   stack<int> range_stack;
-  
+  vector<Range> dummy;
   for(int i=ranges.size()-1;i>=0;i--){
-    recursiveBranching(root, ranges[i]);
+    if(i==0){
+      recursiveBranching(root, ranges[i], exceptions);
+    } else {
+      recursiveBranching(root, ranges[i], dummy);
+    }
   }
 }
 
 //Recursive branching out of Range tree
-void recursiveBranching(TreeNode& node, Range range){
+void recursiveBranching(TreeNode& node, Range range, vector<Range> exceptions){
   if(node.children.empty()){
     TreeNode new_node;
+    int x1;
+    int x2;
+    
+    TreeNode *curr = &node; 
+    vector<Parameter> params;
+    while(curr->label!="root"){
+      Parameter param;
+      param.label = curr->label;
+      param.value = curr->value;
+      params.push_back(param);
+      curr = curr->parent;
+    }
 
     //Left hand side is a constant && Right hand side is a constant
     if(is_number(range.x1) && is_number(range.x2)){
-      int x1 = stoi(range.x1);
-      int x2 = stoi(range.x2);
-      if(!range.inclusive_x1) x1++;
-      if(range.inclusive_x2) x2++;
-      for(x1;x1<x2;x1++){
-        TreeNode new_node;
-        new_node.label = range.label;
-        new_node.value = x1;
-        new_node.parent = &node;
-        node.children.push_back(new_node);
-      }
+      x1 = stoi(range.x1);
+      x2 = stoi(range.x2);
     } 
     //Left hand side is a constant && Right hand side is not
     else if(is_number(range.x1) && !is_number(range.x2)){
-      int x1 = stoi(range.x1);
-      int x2;
-      bool halt = false;
-      TreeNode *curr = &node;
-      string match = ":";
-      match.append(range.x2);
-      vector<Parameter> params;
-      while(curr->label!="root"){
-        Parameter param;
-        param.label = curr->label;
-        param.value = curr->value;
-        params.push_back(param);
-        /**
-        if(curr->label == range.x2){
-          x2 = curr->value;
-          halt = true;
-        } else {
-          curr = curr->parent;
-        }
-        **/
-        curr = curr->parent;
-      }
-      match = matchParameters(match, params);
-      match = match.substr(1, match.length());
+      x1 = stoi(range.x1);
+      string match = subsMathExp(match, params);
       x2 = evalMathExp(match);
-      
-      if(!range.inclusive_x1) x1++;
-      if(range.inclusive_x2) x2++;
-      for(x1;x1<x2;x1++){
-        TreeNode new_node;
-        new_node.label = range.label;
-        new_node.value = x1;
-        new_node.parent = &node;
-        node.children.push_back(new_node);
-      }
     }
     //Left hand side is not a constant && Right hand side is a constant
     else if(!is_number(range.x1) && is_number(range.x2)){
-      int x2 = stoi(range.x2);
-      int x1;
-      bool halt = false;
-      TreeNode *curr = &node;
-      
-      string match = ":";
-      match.append(range.x1);
-      vector<Parameter> params;
-      while(curr->label!="root"){
-        Parameter param;
-        param.label = curr->label;
-        param.value = curr->value;
-        params.push_back(param);
-        /**
-        if(curr->label == range.x1){
-          x1 = curr->value;
-          halt = true;
-        } else {
-          curr = curr->parent;
-        }
-        **/
-        curr = curr->parent;
-      }
-      match = matchParameters(match, params);
-      x1 = evalMathExp(match.substr(1, match.length()));
-
-      if(!range.inclusive_x1) x1++;
-      if(range.inclusive_x2) x2++;
-      for(x1;x1<x2;x1++){
-        TreeNode new_node;
-        new_node.label = range.label;
-        new_node.value = x1;
-        new_node.parent = &node;
-        node.children.push_back(new_node);
-      }
+      x2 = stoi(range.x2);
+      string match = subsMathExp(match, params);
+      x1 = evalMathExp(match);
     }
     else{
-      int x1;
-      int x2;
-      bool halt = false;
-      TreeNode *curr = &node;
-      
-      string match_x1 = ":";
-      string match_x2 = ":";
-      match_x1.append(range.x1);
-      match_x2.append(range.x2);
-      vector<Parameter> params;
-
-      while(curr->label!="root"){
-        Parameter param;
-        param.label = curr->label;
-        param.value = curr->value;
-        params.push_back(param);
-        curr = curr->parent;
-      }
-
-      match_x1 = matchParameters(match_x1, params);
-      match_x2 = matchParameters(match_x2, params);
-      match_x1 = match_x1.substr(1, match_x1.length());
-      match_x2 = match_x2.substr(1, match_x2.length());
+      string match_x1 = subsMathExp(match_x1, params);
+      string match_x2 = subsMathExp(match_x2, params);
       x1 = evalMathExp(match_x1);
       x2 = evalMathExp(match_x2);
-      /**while(!halt){
-        if(curr->label == range.x1){
-          x1 = curr->value;
-          halt = true;
-        } else {
-          curr = curr->parent;
-        }
+    }
+    if(!range.inclusive_x1) x1++;
+    if(range.inclusive_x2) x2++;
+    for(x1;x1<x2;x1++){
+      bool will_add = true;;
+      vector<Parameter> prms = params;
+      Parameter n_prm;
+      n_prm.label = range.label;
+      n_prm.value = x1;
+      prms.push_back(n_prm);
+      for(int i=0;i<exceptions.size();i++){
+        string ex_1 = subsMathExp(exceptions[i].x1, prms);
+        string ex_2 = subsMathExp(exceptions[i].x2, prms);
+        int ex_1val = evalMathExp(ex_1);
+        int ex_2val = evalMathExp(ex_2);
+        if(ex_1val == ex_2val) will_add = false;
       }
-      halt = false;
-      curr = &node;
-      while(!halt){
-        if(curr->label == range.x2){
-          x2 = curr->value;
-          halt = true;
-        } else {
-          curr = curr->parent;
-        }
-      }**/
 
-      if(!range.inclusive_x1) x1++;
-      if(range.inclusive_x2) x2++;
-      for(x1;x1<x2;x1++){
+      if(will_add){
         TreeNode new_node;
         new_node.label = range.label;
         new_node.value = x1;
@@ -992,7 +959,7 @@ void recursiveBranching(TreeNode& node, Range range){
   }
   else{
     for(int i=0;i<node.children.size();i++){
-      recursiveBranching(node.children[i], range);
+      recursiveBranching(node.children[i], range, exceptions);
     }
   }
 }
