@@ -47,6 +47,7 @@ class SNP{
     vector<Neuron> neurons;
     vector<Rule> rules;
     vector<Synapse> synapses;
+    int simulationsteps = 100;
 };
 
 class Neuron{
@@ -54,6 +55,8 @@ class Neuron{
     string label;
     int spikes;
     Parameter param;
+    vector<Synapse> syns;
+    int id;
 };
 
 class Rule{
@@ -88,6 +91,7 @@ class TreeNode{
     TreeNode *parent;
 };
 
+void parseFile(char *filename, int steps);
 void parseFile(char *filename);
 void runMethod(MethodHolder method, vector<Parameter> params);
 void parseRule(string line, MethodHolder method, vector<Parameter> params);
@@ -123,6 +127,7 @@ int findFromIndex(string source, string tofind, int index);
 void printMethodHolder(MethodHolder method);
 void printParameter(Parameter param);
 void printSNP();
+void outCuSnp();
 void printRange(Range r);
 void printTraverseTree(TreeNode root);
 void check(string r);
@@ -132,28 +137,49 @@ int main(int argc, char *argv[]){
 
   //Check command line arguments
   if (argc < 2){
-    cout << "No input file\n";
+    //cout << "No input file\n";
     return 0;
   }
 
   char *filename = argv[1];
 
-  cout << "Parsing " << filename << "\n";
-  
+  int steps = 0;
+  //cout << "Parsing " << filename << "\n";
+  if (argc>2){
+    for(int i=2;i<argc;i++){
+      string in(argv[i]);
+      if(in == "-s" && i+1 < argc){
+        string val(argv[i+1]);
+        if(is_number(val)){
+          steps = stoi(val); 
+        }
+        
+      }
+    }
+  }
   //Call main method for parsing
-  parseFile(filename);
+  if(steps==0){  
+    parseFile(filename);
+  } else {
+    parseFile(filename, steps);
+  }
 }
 
 vector<MethodHolder> methods;
 SNP snpsystem;
 int linecount;
 
+void parseFile(char *filename, int steps){
+  snpsystem.simulationsteps = steps;
+  parseFile(filename);
+}
+
 void parseFile(char *filename){
   
   //Open and verify file integrity
   ifstream file (filename);
   if(!file.is_open()){
-    cout << "File \"" << filename << "\" does not exist\n";
+    //cout << "File \"" << filename << "\" does not exist\n";
     return;
   }
 
@@ -162,7 +188,7 @@ void parseFile(char *filename){
   linecount = 1;
   //Check header
   if(buffer != HEADER){
-    cout << "SNP pli file must have \"" << HEADER << "\" as file header\n";
+    //cout << "SNP pli file must have \"" << HEADER << "\" as file header\n";
   }
 
   vector<MethodHolder> new_methods;
@@ -212,7 +238,8 @@ void parseFile(char *filename){
   vector<Parameter> params;
 
   runMethod(*main, params);
-  printSNP();
+  outCuSnp();
+  //printSNP();
 }
 
 void runMethod(MethodHolder method, vector<Parameter> params){
@@ -225,8 +252,6 @@ void runMethod(MethodHolder method, vector<Parameter> params){
     }
   }
   for(int i=0;i<lines.size();i++){
-    cout << method.label << "::" << lines[i] << endl;
-
     //SPECIAL KEYWORDS DEF AND CALL
     int special_index = checkLineSpecialKeyword(lines[i]);
     if(special_index > 0){
@@ -238,7 +263,6 @@ void runMethod(MethodHolder method, vector<Parameter> params){
         case SPECIAL_CALL_INDEX:
           vector<Parameter> new_parameters = getCallParameters(lines[i]);
           string method_to_call = getMethodName(lines[i]);
-          cout << "CALL:: " << method_to_call << endl;
           runMethod(methods[findMethod(method_to_call)], new_parameters);
           break;
         
@@ -270,14 +294,12 @@ void runMethod(MethodHolder method, vector<Parameter> params){
 }
 
 void parseRule(string line, MethodHolder method, vector<Parameter> params){
-  check("rule line:" +line);
   line = matchParameters(line, method.parameters, params);
-  check("rule line:" +line);
-
+  
   string delay_;
   string neuron_;
   string range_ = "";
-  string regex_;
+  string regex_ = "";
   stack<char> parse_stack;
   vector<string> spike_buffer;
 
@@ -302,14 +324,11 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
           }
           if(line.at(i) == ']') i--;
         }
-        check("SPIKE: " + buffer.str());
         spike_buffer.push_back(buffer.str());
       } else {
-        check("SINGLE SPIKE");
         spike_buffer.push_back("1");
       }
     } else if(currchar == '#'){
-      check("FORGET #");
       spike_buffer.push_back("#");
     } else if(currchar == '\''){
       i++;
@@ -319,7 +338,6 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
         i++;
       }
       neuron_ = buffer.str();
-      check("NEURON: " + neuron_);
       if(i < line.length() && line.at(i) == ':') i--;
     } else if(currchar == ':'){
       bool range = false;
@@ -331,7 +349,6 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
           i++;
         }
         delay_ = delay_exp.str();
-        check("DELAY: " + delay_);
         if((i+1)!=line.length()){
           range = true;
         }
@@ -350,26 +367,17 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
         i++;currchar = line.at(i);
       }
       regex_ = regex.str();
-      check("REGEX: " + regex_);
     }
   }
 
-
   if(!range_.empty()){
-    check("RANGE: " + range_);
-
+    
     TreeNode root;
     root.label = "root";
     root.value = -1;
     root.parent = NULL;
 
     identifyRanges(range_, root);
-
-    check("NEURON: " + neuron_);
-    check("REGEX: " + regex_);
-    check("CONSUMED: " + spike_buffer[0]);
-    check("PRODUCED: " + spike_buffer[1]);
-    check("DELAY: " + delay_);
 
     createRules(root, neuron_, regex_, spike_buffer[0], spike_buffer[1], delay_);
 
@@ -379,13 +387,17 @@ void parseRule(string line, MethodHolder method, vector<Parameter> params){
     rule.d = evalMathExp(delay_);
     rule.c = evalMathExp(spike_buffer[0]);
     rule.p = evalMathExp(spike_buffer[1]);
+    if(regex_.empty()){
+      stringstream rbuff;
+      rbuff << "a" << rule.c;
+      regex_ = rbuff.str();  
+    }
     rule.regex = regex_;
     snpsystem.rules.push_back(rule);
   }
 }
 
 void createRules(TreeNode &node, string neuron_, string regex_, string c_, string p_, string d_){
-  check("CURR NODE: " + node.label);
   if(node.children.empty()){
     Rule rule;
     vector<Parameter> params;
@@ -398,16 +410,18 @@ void createRules(TreeNode &node, string neuron_, string regex_, string c_, strin
       curr = curr->parent;
     }
     rule.neuron_label = matchParameters(neuron_, params);
-    rule.regex = regex_;
     string c_exp = subsMathExp(c_, params);
     string p_exp = subsMathExp(p_, params);
     string d_exp = subsMathExp(d_, params);
-    check("CONSUMERISM: " + c_exp);
-    check("PRODUCTION VALUE: " + p_exp);
-    check("DICKS: " + d_exp);
     rule.c = evalMathExp(c_exp);
     rule.p = evalMathExp(p_exp);    
     rule.d = evalMathExp(d_exp);
+    if(regex_.empty()){
+      stringstream rbuff;
+      rbuff << "a" << rule.c;
+      regex_ = rbuff.str();  
+    }
+    rule.regex = regex_;
     snpsystem.rules.push_back(rule);
   } else {
     for(int i=0;i<node.children.size();i++){
@@ -479,7 +493,7 @@ void eval_mu(string line, MethodHolder method, vector<Parameter> params){
   //Case: No Range Specified
   else{
     if(colon_split[0].find("{")!=string::npos){
-      cout << "Error: No Range given. Line:" << line << endl;
+      //cout << "Error: No Range given. Line:" << line << endl;
     }
     int delim =  colon_split[0].find("+=");
     if(delim != string::npos){
@@ -684,7 +698,6 @@ int evalMathExp(string mathexp){
   }  
   for(int i=0;i<mathexp.length();i++){
     char currchar = mathexp.at(i);
-    cout << " MATHEXP BOYS " << currchar << endl;
     if(currchar=='+'){
       while(!opstack.empty() && (opstack.top() == '+' || opstack.top() == '-' || opstack.top() =='/' ||
            opstack.top() =='*' || opstack.top()=='^')){
@@ -809,7 +822,7 @@ string matchParameters(string line, vector<Parameter> params){
 //Overloaded method
 string matchParameters(string line, vector<Parameter> param_needed, vector<Parameter> param_provided){
   if(param_needed.size()!=param_provided.size()){
-    cout << "Parameters do not match: " << line << endl;
+    //cout << "Parameters do not match: " << line << endl;
     return "";
   }
   
@@ -1247,6 +1260,45 @@ void printSNP(){
         << "a*" << snpsystem.rules[i].c << "-->" << "a*" << snpsystem.rules[i].p << ":" 
         << snpsystem.rules[i].d << endl;
   }
+}
+
+void outCuSnp(){
+  cout << snpsystem.neurons.size() << endl;
+  cout << snpsystem.rules.size() << endl;
+  cout << snpsystem.simulationsteps << endl;
+  for(int i=0;i<snpsystem.neurons.size();i++){
+  cout << snpsystem.neurons[i].spikes << " ";
+  snpsystem.neurons[i].id = i;
+  } cout << endl;
+
+  for(int i=0;i<snpsystem.synapses.size();i++){
+    for(int j=0;j<snpsystem.neurons.size();j++){
+      if(snpsystem.synapses[i].from == snpsystem.neurons[j].label){
+        snpsystem.neurons[j].syns.push_back(snpsystem.synapses[i]); break;
+      }    
+    }
+  }
+
+  for(int i=0;i<snpsystem.neurons.size();i++){
+    cout << snpsystem.neurons[i].syns.size() << " ";
+    for(int j=0;j<snpsystem.neurons[i].syns.size();j++){
+      for(int k=0;k<snpsystem.neurons.size();k++){
+        if(snpsystem.neurons[i].syns[j].to == snpsystem.neurons[k].label){
+          cout << snpsystem.neurons[k].id << " "; break;
+        }
+      }  
+    }cout << endl;
+  }
+
+  for(int i=0;i<snpsystem.rules.size();i++){
+    for(int j=0;j<snpsystem.neurons.size();j++){
+      if(snpsystem.rules[i].neuron_label == snpsystem.neurons[j].label){
+        cout << snpsystem.neurons[j].id << " ";
+      }
+    }
+    cout << snpsystem.rules[i].regex << " " << snpsystem.rules[i].c << " " << snpsystem.rules[i].p << " " << snpsystem.rules[i].d << endl;
+  }
+
 }
 
 void printRange(Range r){
