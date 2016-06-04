@@ -1,9 +1,9 @@
 @model<spiking_psystems>
 
 def main(){
-  call init_snp(5);
-  call init_config(5);
-  call init_spiking_rules(5);
+  call init_snp(1024);
+  call init_config(1024);
+  call init_spiking_rules(1024);
 }
 
 def init_snp(n){

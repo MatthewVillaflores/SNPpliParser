@@ -627,6 +627,7 @@ void eval_arcs(string line, MethodHolder method, vector<Parameter> params){
   vector<string> colon_split = split(line, ":");
 
   if(colon_split.size()>1){
+
     TreeNode root;
     root.label = "root";
     root.value = -1;
@@ -753,9 +754,10 @@ int evalMathExp(string mathexp){
             mathexp.at(i+1) != '*' && mathexp.at(i+1) != '/' &&
             mathexp.at(i+1) != '^' && mathexp.at(i+1) != '(' &&
             mathexp.at(i+1) != ')' && mathexp.at(i+1) != ' '){
-        i++;
+        
         currchar = mathexp.at(i+1);
         operand_buffer << currchar;
+        i++;      
       }
       postfix_notation.push_back(operand_buffer.str());
     }
